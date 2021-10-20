@@ -7,7 +7,7 @@ A tool allowing you to preview a series of snapshots of Zig's incremental linker
 You will need to build Zig's stage2/self-hosted compiler with `-Dsnapshots` flag on:
 
 ```
-$ zig build -Dsnapshots
+$ zig build -Dsnapshot
 ```
 
 Then, you can run the compiler either in a fire-and-forget or watch-for-updates manner
