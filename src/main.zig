@@ -77,18 +77,34 @@ pub fn main() !void {
         // address to y mapping
         var mapping = std.ArrayList(struct { y: usize, address: u64, nodes: std.ArrayList(Snapshot.Node) }).init(arena);
         var lookup_table = std.AutoArrayHashMap(u64, usize).init(arena);
+        var updated = false;
         for (snapshot.nodes) |node| {
             const res = try lookup_table.getOrPut(node.address);
             if (!res.found_existing) {
+                updated = false;
                 const index = mapping.items.len;
                 res.value_ptr.* = index;
                 const new = try mapping.addOne();
-                const last_y = if (index == 0) 0 else mapping.items[index - 1].y;
+                const last_y = if (index > 0)
+                    mapping.items[index - 1].y
+                else
+                    0;
                 new.* = .{
                     .y = last_y + unit_height,
                     .address = node.address,
                     .nodes = std.ArrayList(Snapshot.Node).init(arena),
                 };
+            }
+            switch (node.tag) {
+                .section_start => if (!updated) {
+                    mapping.items[res.value_ptr.*].y += 2 * unit_height;
+                    updated = true;
+                },
+                .atom_start => if (!updated) {
+                    mapping.items[res.value_ptr.*].y += unit_height;
+                    updated = true;
+                },
+                else => {},
             }
             try mapping.items[res.value_ptr.*].nodes.append(node);
         }
@@ -100,62 +116,86 @@ pub fn main() !void {
             .height = 0,
         };
 
+        var done = false;
         for (mapping.items) |entry| {
             log.warn("y = {d}, address = {x}, nnodes = {d}", .{ entry.y, entry.address, entry.nodes.items.len });
 
+            if (entry.nodes.items.len == 1) {
+                switch (entry.nodes.items[0].tag) {
+                    .section_end, .atom_end => continue,
+                    else => {},
+                }
+            }
+
             // TODO create an svg group?
-            const box = try Svg.Element.Rect.new(arena);
+            const box = try Svg.Element.Rect.new(arena, .{
+                .x = 200,
+                .y = entry.y,
+                .width = svg.width - 300,
+                .height = unit_height,
+            });
             try svg.children.append(arena, &box.base);
             try box.base.css.append(arena, "rect");
-            box.x = 200;
-            box.y = entry.y;
-            box.width = svg.width - 300;
-            box.height = unit_height;
-            const addr = try Svg.Element.Text.new(arena);
+
+            const addr = try Svg.Element.Text.new(arena, .{
+                .x = svg.width - 100 + 5,
+                .y = box.y + 12,
+                .contents = try std.fmt.allocPrint(arena, "{x}", .{entry.address}),
+            });
             try svg.children.append(arena, &addr.base);
-            addr.x = svg.width - 100 + 5;
-            addr.y = box.y + 12;
-            addr.contents = try std.fmt.allocPrint(arena, "{x}", .{entry.address});
 
-            // var tags = std.AutoHashMap(Snapshot.Node.Tag, void).init(arena);
-            // for (entry.nodes.items) |node| {
-            //     _ = try tags.getOrPut(node.tag);
-            // }
+            outer: for (entry.nodes.items) |node, i| {
+                switch (node.tag) {
+                    .section_start => {
+                        const label = try Svg.Element.Text.new(arena, .{
+                            .x = 10,
+                            .y = box.y + 12,
+                            .contents = node.payload.name,
+                        });
+                        try svg.children.append(arena, &label.base);
+                    },
+                    .atom_start => {
+                        var next: usize = i + 1;
+                        while (next < entry.nodes.items.len) : (next += 1) {
+                            if (entry.nodes.items[next].tag == .atom_start) continue :outer;
+                        }
+                        if (node.payload.name.len == 0) continue :outer;
+                        const name = try Svg.Element.Text.new(arena, .{
+                            .x = box.x + 10,
+                            .y = box.y + 15,
+                            .contents = node.payload.name,
+                        });
+                        try svg.children.append(arena, &name.base);
+                    },
+                    .relocation => {
+                        if (done) continue;
+                        const y2 = blk: {
+                            const target_i = lookup_table.get(node.payload.target) orelse continue;
+                            const target = mapping.items[target_i];
+                            break :blk target.y;
+                        };
+                        const arrow = try Svg.Element.Line.new(arena, .{
+                            .x1 = box.x,
+                            .y1 = box.y,
+                            .x2 = box.x + 20,
+                            .y2 = y2,
+                        });
+                        try arrow.base.css.append(arena, "arrow");
+                        try svg.children.append(arena, &arrow.base);
+                        done = true;
+                    },
+                    else => {},
+                }
+            }
+        }
 
-            // for (entry.nodes.items) |node| {
-            //     log.warn("    {s} => {s}", .{ node.tag, node.payload.name });
-
-            //     switch (node.tag) {
-            //         .section_start => {
-            //             const svg_label = try svg_snap.newChild(arena);
-            //             svg_label.tag = .text;
-            //             svg_label.x = 10;
-            //             svg_label.y = svg_rect.y + 15;
-            //             svg_label.contents = node.payload.name;
-            //         },
-            //         .atom_start => {
-            //             const svg_label = try svg_snap.newChild(arena);
-            //             svg_label.tag = .text;
-            //             svg_label.x = svg_rect.x + 10;
-            //             svg_label.y = svg_rect.y + 15;
-            //             svg_label.contents = node.payload.name;
-            //         },
-            //         .relocation => {
-            //             const svg_arrow = try svg_snap.newChild(arena);
-            //             svg_arrow.tag = .line;
-
-            //             if (tags.contains(.atom_start)) continue;
-            //             const svg_label = try svg_snap.newChild(arena);
-            //             svg_label.tag = .text;
-            //             svg_label.x = svg_rect.x + 10;
-            //             svg_label.y = svg_rect.y + 15;
-            //             svg_label.contents = try std.fmt.allocPrint(arena, "{x}", .{node.payload.target});
-            //         },
-            //         else => {},
-            //     }
-            // }
-
-            svg.height += unit_height;
+        var i: isize = @intCast(isize, svg.children.items.len) - 1;
+        while (i >= 0) : (i -= 1) {
+            const child = svg.children.items[@intCast(usize, i)];
+            if (child.cast(Svg.Element.Rect)) |rect| {
+                svg.height = rect.y + rect.height;
+                break;
+            }
         }
 
         try svg.render(writer);

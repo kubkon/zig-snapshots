@@ -21,14 +21,19 @@ pub const Element = struct {
         x2: usize,
         y2: usize,
 
-        pub fn new(allocator: *Allocator) !*Line {
+        pub fn new(allocator: *Allocator, opts: struct {
+            x1: usize = 0,
+            y1: usize = 0,
+            x2: usize = 0,
+            y2: usize = 0,
+        }) !*Line {
             const self = try allocator.create(Line);
             self.* = .{
                 .base = .{ .tag = .line },
-                .x1 = 0,
-                .y1 = 0,
-                .x2 = 0,
-                .y2 = 0,
+                .x1 = opts.x1,
+                .y1 = opts.y1,
+                .x2 = opts.x2,
+                .y2 = opts.y2,
             };
             return self;
         }
@@ -60,14 +65,19 @@ pub const Element = struct {
         width: usize,
         height: usize,
 
-        pub fn new(allocator: *Allocator) !*Rect {
+        pub fn new(allocator: *Allocator, opts: struct {
+            x: usize = 0,
+            y: usize = 0,
+            width: usize = 0,
+            height: usize = 0,
+        }) !*Rect {
             const self = try allocator.create(Rect);
             self.* = .{
                 .base = .{ .tag = .rect },
-                .x = 0,
-                .y = 0,
-                .width = 0,
-                .height = 0,
+                .x = opts.x,
+                .y = opts.y,
+                .width = opts.width,
+                .height = opts.height,
             };
             return self;
         }
@@ -96,15 +106,19 @@ pub const Element = struct {
         base: Svg.Element,
         x: usize,
         y: usize,
-        contents: []const u8,
+        contents: ?[]const u8,
 
-        pub fn new(allocator: *Allocator) !*Text {
+        pub fn new(allocator: *Allocator, opts: struct {
+            x: usize = 0,
+            y: usize = 0,
+            contents: ?[]const u8 = null,
+        }) !*Text {
             const self = try allocator.create(Text);
             self.* = .{
                 .base = .{ .tag = .text },
-                .x = 0,
-                .y = 0,
-                .contents = undefined,
+                .x = opts.x,
+                .y = opts.y,
+                .contents = opts.contents,
             };
             return self;
         }
@@ -116,10 +130,13 @@ pub const Element = struct {
                 for (self.base.css.items) |class| {
                     try writer.print("{s} ", .{class});
                 }
-                try writer.writeAll("'");
+                try writer.writeAll("' ");
             }
-            try writer.writeAll(">");
-            try writer.print("{s}</text>\n", .{self.contents});
+            if (self.contents) |contents| {
+                try writer.print(">{s}</text>\n", .{contents});
+            } else {
+                try writer.writeAll("/>\n");
+            }
         }
     };
 
@@ -136,6 +153,11 @@ pub const Element = struct {
             .rect => @fieldParentPtr(Rect, "base", base).render(writer),
             .text => @fieldParentPtr(Text, "base", base).render(writer),
         };
+    }
+
+    pub fn cast(base: *Element, comptime T: type) ?*T {
+        if (T.base_tag != base.tag) return null;
+        return @fieldParentPtr(T, "base", base);
     }
 };
 
