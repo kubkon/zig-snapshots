@@ -10,12 +10,12 @@ You will need to build Zig's stage2/self-hosted compiler with `-Dsnapshots` flag
 $ zig build -Dsnapshot
 ```
 
-Then, you can run the compiler either in a fire-and-forget or watch-for-updates manner
-and it will automatically generate a snapshot of the linker's state per incremental update,
+Then, you can run the compiler either in a fire-and-forget or watch-for-updates manner with
+`--snapshot` flag on to generate a snapshot of the linker's state per incremental update,
 all saved in the same JSON output file:
 
 ```
-$ zig build-exe hello.zig --watch
+$ zig build-exe hello.zig --watch --snapshot
 > update-and-run
 > update-and-run
 > exit
