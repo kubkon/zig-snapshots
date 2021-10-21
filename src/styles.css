@@ -1,3 +1,9 @@
+rect:hover{
+  stroke: red;
+  stroke-width: 2;
+  fill: red;
+  fill-opacity: 0.1;
+}
 .snapshot-div {
   height: 100%;
   width: 100%;
@@ -17,12 +23,6 @@
 .symbol {
   stroke: black;
 }
-.symbol:hover{
-  stroke: red;
-  stroke-width: 2;
-  fill: red;
-  fill-opacity: 0.1;
-}
 .local {
   fill: white;
   fill-opacity: 0.0;
@@ -30,6 +30,12 @@
 .global {
   fill: grey;
   fill-opacity: 0.25;
+}
+.reloc {
+  fill: transparent;
+  stroke: black;
+  stroke-width: 1;
+  stroke-dasharray: 10, 4;
 }
 .arrow {
   stroke: black;

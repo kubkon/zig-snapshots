@@ -7,10 +7,40 @@ const Allocator = mem.Allocator;
 
 pub const Element = struct {
     const Tag = enum {
+        group,
         path,
         line,
         rect,
         text,
+    };
+
+    pub const Group = struct {
+        const base_tag: Svg.Element.Tag = .group;
+
+        base: Svg.Element,
+        children: std.ArrayListUnmanaged(*Svg.Element) = .{},
+
+        pub fn new(allocator: *Allocator) !*Group {
+            const self = try allocator.create(Group);
+            self.* = .{
+                .base = .{ .tag = .group },
+            };
+            return self;
+        }
+
+        pub fn deinit(self: *Group, allocator: *Allocator) void {
+            self.children.deinit(allocator);
+        }
+
+        pub fn render(self: Group, writer: anytype) @TypeOf(writer).Error!void {
+            try writer.writeAll("<g ");
+            try self.base.renderImpl(writer);
+            try writer.writeAll(">");
+            for (self.children.items) |child| {
+                try child.render(writer);
+            }
+            try writer.writeAll("</g>");
+        }
     };
 
     pub const Path = struct {
@@ -50,14 +80,8 @@ pub const Element = struct {
 
         pub fn render(self: Path, writer: anytype) @TypeOf(writer).Error!void {
             try writer.print("<path d='{s}' ", .{self.d.items});
-            if (self.base.css.items.len > 0) {
-                try writer.writeAll("class='");
-                for (self.base.css.items) |class| {
-                    try writer.print("{s} ", .{class});
-                }
-                try writer.writeAll("'");
-            }
-            try writer.writeAll("/>\n");
+            try self.base.renderImpl(writer);
+            try writer.writeAll("/>");
         }
     };
 
@@ -94,14 +118,8 @@ pub const Element = struct {
                 self.x2,
                 self.y2,
             });
-            if (self.base.css.items.len > 0) {
-                try writer.writeAll("class='");
-                for (self.base.css.items) |class| {
-                    try writer.print("{s} ", .{class});
-                }
-                try writer.writeAll("'");
-            }
-            try writer.writeAll("/>\n");
+            try self.base.renderImpl(writer);
+            try writer.writeAll("/>");
         }
     };
 
@@ -138,14 +156,8 @@ pub const Element = struct {
                 self.width,
                 self.height,
             });
-            if (self.base.css.items.len > 0) {
-                try writer.writeAll("class='");
-                for (self.base.css.items) |class| {
-                    try writer.print("{s} ", .{class});
-                }
-                try writer.writeAll("'");
-            }
-            try writer.writeAll("/>\n");
+            try self.base.renderImpl(writer);
+            try writer.writeAll("/>");
         }
     };
 
@@ -174,35 +186,47 @@ pub const Element = struct {
 
         pub fn render(self: Text, writer: anytype) @TypeOf(writer).Error!void {
             try writer.print("<text x='{d}' y='{d}' ", .{ self.x, self.y });
-            if (self.base.css.items.len > 0) {
-                try writer.writeAll("class='");
-                for (self.base.css.items) |class| {
-                    try writer.print("{s} ", .{class});
-                }
-                try writer.writeAll("' ");
-            }
+            try self.base.renderImpl(writer);
             if (self.contents) |contents| {
-                try writer.print(">{s}</text>\n", .{contents});
+                try writer.print(">{s}</text>", .{contents});
             } else {
-                try writer.writeAll("/>\n");
+                try writer.writeAll("/>");
             }
         }
     };
 
     tag: Tag,
-    css: std.ArrayListUnmanaged([]const u8) = .{},
+    id: ?[]const u8 = null,
+    css_classes: ?[]const u8 = null,
+    onclick: ?[]const u8 = null,
 
     pub fn deinit(base: *Element, allocator: *Allocator) void {
-        base.css.deinit(allocator);
+        switch (base.tag) {
+            .group => @fieldParentPtr(Group, "base", base).deinit(allocator),
+            else => {},
+        }
     }
 
     pub fn render(base: *Element, writer: anytype) @TypeOf(writer).Error!void {
         return switch (base.tag) {
+            .group => @fieldParentPtr(Group, "base", base).render(writer),
             .path => @fieldParentPtr(Path, "base", base).render(writer),
             .line => @fieldParentPtr(Line, "base", base).render(writer),
             .rect => @fieldParentPtr(Rect, "base", base).render(writer),
             .text => @fieldParentPtr(Text, "base", base).render(writer),
         };
+    }
+
+    fn renderImpl(base: *const Element, writer: anytype) @TypeOf(writer).Error!void {
+        if (base.id) |id| {
+            try writer.print("id='{s}' ", .{id});
+        }
+        if (base.css_classes) |classes| {
+            try writer.print("class='{s}' ", .{classes});
+        }
+        if (base.onclick) |onclick| {
+            try writer.print("onclick='{s}' ", .{onclick});
+        }
     }
 
     pub fn cast(base: *Element, comptime T: type) ?*T {
@@ -223,9 +247,9 @@ pub fn deinit(self: *Svg, allocator: *Allocator) void {
 }
 
 pub fn render(self: Svg, writer: anytype) @TypeOf(writer).Error!void {
-    try writer.print("<svg height='{d}' width='{d}'>\n", .{ self.height, self.width });
+    try writer.print("<svg height='{d}' width='{d}'>", .{ self.height, self.width });
     for (self.children.items) |child| {
         try child.render(writer);
     }
-    try writer.writeAll("</svg>\n");
+    try writer.writeAll("</svg>");
 }

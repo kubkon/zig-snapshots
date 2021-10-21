@@ -9,6 +9,8 @@ const Svg = @import("Svg.zig");
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa = &general_purpose_allocator.allocator;
 
+var id: usize = 0;
+
 const Snapshot = struct {
     const Node = struct {
         const Tag = enum {
@@ -35,6 +37,7 @@ const Snapshot = struct {
 const svg_width: usize = 600;
 const unit_height: usize = 20;
 const css_styles = @embedFile("styles.css");
+const js_helpers = @embedFile("script.js");
 
 fn usageAndExit(arg0: []const u8) noreturn {
     std.debug.warn("Usage: {s} <input_json_file>\n", .{arg0});
@@ -74,31 +77,35 @@ pub fn main() !void {
 
     const writer = out_file.writer();
 
-    try writer.writeAll("<html>\n");
-    try writer.writeAll("<head></head>\n");
-    try writer.writeAll("<body>\n");
-    try writer.print("<style>{s}</style>\n", .{css_styles});
+    try writer.writeAll("<html>");
+    try writer.writeAll("<head>");
+    try writer.print("<script>{s}</script>", .{js_helpers});
+    try writer.writeAll("</head>");
+    try writer.writeAll("<body>");
+    try writer.print("<style>{s}</style>", .{css_styles});
 
     for (snapshots) |snapshot| {
-        try writer.writeAll("<div class='snapshot-div'>\n");
+        try writer.writeAll("<div class='snapshot-div'>");
         var svg = Svg{ .width = 600, .height = 0 };
         var parser = Parser{ .arena = arena, .nodes = snapshot.nodes };
         var x: usize = 10;
         var y: usize = 10;
+        var parsed = std.ArrayList(*ParsedNode).init(arena);
         while (try parser.parse()) |parsed_node| {
-            y = try parsed_node.toSvg(arena, .{
+            try parsed.append(parsed_node);
+            try parsed_node.toSvg(arena, .{
                 .nodes = snapshot.nodes,
                 .svg = &svg,
-                .x = x,
-                .y = y,
+                .x = &x,
+                .y = &y,
             });
         }
         try svg.render(writer);
     }
 
-    try writer.writeAll("</div>\n");
-    try writer.writeAll("</body>\n");
-    try writer.writeAll("</html>\n");
+    try writer.writeAll("</div>");
+    try writer.writeAll("</body>");
+    try writer.writeAll("</html>");
 }
 
 const ParsedNode = struct {
@@ -119,37 +126,56 @@ const ParsedNode = struct {
         node.children.deinit(allocator);
     }
 
-    fn toSvg(node: ParsedNode, arena: *Allocator, ctx: struct {
+    fn toSvg(node: *ParsedNode, arena: *Allocator, ctx: struct {
         nodes: []Snapshot.Node,
         svg: *Svg,
-        x: usize,
-        y: usize,
-    }) anyerror!usize {
-        var x = ctx.x;
-        var y = ctx.y;
+        group: ?*Svg.Element.Group = null,
+        x: *usize,
+        y: *usize,
+    }) anyerror!void {
+        var x = ctx.x.*;
+        var y = ctx.y.*;
 
         switch (node.tag) {
             .section => {
+                const group = try Svg.Element.Group.new(arena);
+                try ctx.svg.children.append(arena, &group.base);
+
+                const inner_group = try Svg.Element.Group.new(arena);
+                try group.children.append(arena, &inner_group.base);
+
                 const label_text = ctx.nodes[node.start].payload.name;
                 const label = try Svg.Element.Text.new(arena, .{
                     .x = x,
                     .y = y + 15,
                     .contents = label_text,
                 });
-                try ctx.svg.children.append(arena, &label.base);
+                try inner_group.children.append(arena, &label.base);
 
                 const top = try Svg.Element.Path.new(arena, .{});
                 try top.moveTo(arena, x, y);
                 try top.lineTo(arena, ctx.svg.width - 100, y);
-                try top.base.css.append(arena, "dotted-line");
-                try ctx.svg.children.append(arena, &top.base);
+                top.base.css_classes = "dotted-line";
+                try inner_group.children.append(arena, &top.base);
 
                 const address = try Svg.Element.Text.new(arena, .{
                     .x = ctx.svg.width - 100,
                     .y = y + 15,
                     .contents = try std.fmt.allocPrint(arena, "{x}", .{ctx.nodes[node.start].address}),
                 });
-                try ctx.svg.children.append(arena, &address.base);
+                try inner_group.children.append(arena, &address.base);
+
+                y += unit_height;
+
+                for (node.children.items) |child| {
+                    try child.toSvg(arena, .{
+                        .nodes = ctx.nodes,
+                        .svg = ctx.svg,
+                        .group = group,
+                        .x = ctx.x,
+                        .y = &y,
+                    });
+                }
 
                 y += unit_height;
             },
@@ -157,50 +183,97 @@ const ParsedNode = struct {
                 if (node.children.items.len > 0 and node.children.items[0].tag == .atom) {
                     // This atom delimits contents of a section from an object file
                     // TODO draw an enclosing box for the contained atoms.
+                    for (node.children.items) |child| {
+                        try child.toSvg(arena, .{
+                            .nodes = ctx.nodes,
+                            .svg = ctx.svg,
+                            .group = ctx.group,
+                            .x = ctx.x,
+                            .y = &y,
+                        });
+                    }
                     break :blk;
                 }
+
+                const group = try Svg.Element.Group.new(arena);
+                try ctx.group.?.children.append(arena, &group.base);
+
+                const label = try Svg.Element.Text.new(arena, .{
+                    .x = x + 210,
+                    .y = y + 15,
+                    .contents = ctx.nodes[node.start].payload.name,
+                });
+                try group.children.append(arena, &label.base);
+
                 const box = try Svg.Element.Rect.new(arena, .{
                     .x = x + 200,
                     .y = y,
                     .width = 200,
                     .height = unit_height,
                 });
-                try box.base.css.append(arena, "symbol");
                 if (ctx.nodes[node.start].payload.is_global) {
-                    try box.base.css.append(arena, "global");
+                    box.base.css_classes = "symbol global";
                 } else {
-                    try box.base.css.append(arena, "local");
+                    box.base.css_classes = "symbol local";
                 }
-                try ctx.svg.children.append(arena, &box.base);
+                try group.children.append(arena, &box.base);
 
-                const label = try Svg.Element.Text.new(arena, .{
-                    .x = box.x + 10,
-                    .y = box.y + 15,
-                    .contents = ctx.nodes[node.start].payload.name,
+                y += box.height;
+
+                if (node.children.items.len > 0) {
+                    const reloc_group = try Svg.Element.Group.new(arena);
+                    reloc_group.base.css_classes = "hidden";
+                    reloc_group.base.id = try std.fmt.allocPrint(arena, "reloc-group-{d}", .{id});
+                    id += 1;
+                    try group.children.append(arena, &reloc_group.base);
+
+                    box.base.onclick = try std.fmt.allocPrint(arena, "translate(\"{s}\", 0, {d})", .{
+                        reloc_group.base.id, node.children.items.len * unit_height,
+                    });
+
+                    for (node.children.items) |child| {
+                        try child.toSvg(arena, .{
+                            .nodes = ctx.nodes,
+                            .svg = ctx.svg,
+                            .group = reloc_group,
+                            .x = ctx.x,
+                            .y = &y,
+                        });
+                    }
+
+                    y -= node.children.items.len * unit_height;
+                }
+            },
+            .reloc => {
+                const address = try Svg.Element.Text.new(arena, .{
+                    .x = x + 410,
+                    .y = y + 15,
+                    .contents = try std.fmt.allocPrint(arena, "{x}", .{ctx.nodes[node.start].address}),
                 });
-                try ctx.svg.children.append(arena, &label.base);
+                try ctx.group.?.children.append(arena, &address.base);
+
+                const box_width = 200;
+                const label = try Svg.Element.Text.new(arena, .{
+                    .x = x + 200 + @divExact(box_width, 2) - 35,
+                    .y = y + 15,
+                    .contents = "relocation",
+                });
+                try ctx.group.?.children.append(arena, &label.base);
+
+                const box = try Svg.Element.Rect.new(arena, .{
+                    .x = x + box_width,
+                    .y = y,
+                    .width = 200,
+                    .height = unit_height,
+                });
+                try ctx.group.?.children.append(arena, &box.base);
 
                 y += box.height;
             },
-            else => {},
         }
 
-        for (node.children.items) |child| {
-            y = try child.toSvg(arena, .{
-                .nodes = ctx.nodes,
-                .svg = ctx.svg,
-                .x = ctx.x,
-                .y = y,
-            });
-        }
-
-        if (node.tag == .section) {
-            y += unit_height;
-        }
-
-        ctx.svg.height += y - ctx.y;
-
-        return y;
+        ctx.svg.height += y - ctx.y.*;
+        ctx.y.* = y;
     }
 };
 
