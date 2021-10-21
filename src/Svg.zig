@@ -7,9 +7,58 @@ const Allocator = mem.Allocator;
 
 pub const Element = struct {
     const Tag = enum {
+        path,
         line,
         rect,
         text,
+    };
+
+    pub const Path = struct {
+        const base_tag: Svg.Element.Tag = .path;
+
+        base: Svg.Element,
+        d: std.ArrayListUnmanaged(u8) = .{},
+
+        pub fn new(allocator: *Allocator, opts: struct {
+            d: ?[]const u8 = null,
+        }) !*Path {
+            const self = try allocator.create(Path);
+            self.* = .{
+                .base = .{ .tag = .path },
+            };
+            if (opts.d) |d| {
+                try self.d.appendSlice(allocator, d);
+            }
+            return self;
+        }
+
+        pub fn moveTo(self: *Path, allocator: *Allocator, x: usize, y: usize) !void {
+            const d = try std.fmt.allocPrint(allocator, "M {d} {d} ", .{ x, y });
+            defer allocator.free(d);
+            try self.d.appendSlice(allocator, d);
+        }
+
+        pub fn lineTo(self: *Path, allocator: *Allocator, x: usize, y: usize) !void {
+            const d = try std.fmt.allocPrint(allocator, "L {d} {d} ", .{ x, y });
+            defer allocator.free(d);
+            try self.d.appendSlice(allocator, d);
+        }
+
+        pub fn deinit(self: *Path, allocator: *Allocator) void {
+            self.d.deinit(allocator);
+        }
+
+        pub fn render(self: Path, writer: anytype) @TypeOf(writer).Error!void {
+            try writer.print("<path d='{s}' ", .{self.d.items});
+            if (self.base.css.items.len > 0) {
+                try writer.writeAll("class='");
+                for (self.base.css.items) |class| {
+                    try writer.print("{s} ", .{class});
+                }
+                try writer.writeAll("'");
+            }
+            try writer.writeAll("/>\n");
+        }
     };
 
     pub const Line = struct {
@@ -149,6 +198,7 @@ pub const Element = struct {
 
     pub fn render(base: *Element, writer: anytype) @TypeOf(writer).Error!void {
         return switch (base.tag) {
+            .path => @fieldParentPtr(Path, "base", base).render(writer),
             .line => @fieldParentPtr(Line, "base", base).render(writer),
             .rect => @fieldParentPtr(Rect, "base", base).render(writer),
             .text => @fieldParentPtr(Text, "base", base).render(writer),
