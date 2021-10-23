@@ -7,11 +7,50 @@ const Allocator = mem.Allocator;
 
 pub const Element = struct {
     const Tag = enum {
+        raw,
         group,
         path,
         line,
         rect,
         text,
+    };
+
+    pub const Raw = struct {
+        const base_tag: Svg.Element.Tag = .raw;
+
+        base: Svg.Element,
+        tag: []const u8,
+        attrs: std.ArrayListUnmanaged([]const u8) = .{},
+        children: std.ArrayListUnmanaged(*Svg.Element) = .{},
+
+        pub fn new(allocator: *Allocator, tag: []const u8) !*Raw {
+            const self = try allocator.create(Raw);
+            self.* = .{
+                .base = .{ .tag = .raw },
+                .tag = tag,
+            };
+            return self;
+        }
+
+        pub fn deinit(self: *Raw, allocator: *Allocator) void {
+            self.attrs.deinit(allocator);
+            for (self.children.items) |child| {
+                child.deinit(allocator);
+            }
+            self.children.deinit(allocator);
+        }
+
+        pub fn render(self: Raw, writer: anytype) @TypeOf(writer).Error!void {
+            try writer.print("<{s} ", .{self.tag});
+            for (self.attrs.items) |attr| {
+                try writer.print("{s} ", .{attr});
+            }
+            try writer.writeAll(">");
+            for (self.children.items) |child| {
+                try child.render(writer);
+            }
+            try writer.print("</{s}>", .{self.tag});
+        }
     };
 
     pub const Group = struct {
@@ -29,6 +68,9 @@ pub const Element = struct {
         }
 
         pub fn deinit(self: *Group, allocator: *Allocator) void {
+            for (self.children.items) |child| {
+                child.deinit(allocator);
+            }
             self.children.deinit(allocator);
         }
 
@@ -47,14 +89,26 @@ pub const Element = struct {
         const base_tag: Svg.Element.Tag = .path;
 
         base: Svg.Element,
+        x1: ?usize,
+        y1: ?usize,
+        x2: ?usize,
+        y2: ?usize,
         d: std.ArrayListUnmanaged(u8) = .{},
 
         pub fn new(allocator: *Allocator, opts: struct {
+            x1: ?usize = null,
+            y1: ?usize = null,
+            x2: ?usize = null,
+            y2: ?usize = null,
             d: ?[]const u8 = null,
         }) !*Path {
             const self = try allocator.create(Path);
             self.* = .{
                 .base = .{ .tag = .path },
+                .x1 = opts.x1,
+                .y1 = opts.y1,
+                .x2 = opts.x2,
+                .y2 = opts.y2,
             };
             if (opts.d) |d| {
                 try self.d.appendSlice(allocator, d);
@@ -80,6 +134,18 @@ pub const Element = struct {
 
         pub fn render(self: Path, writer: anytype) @TypeOf(writer).Error!void {
             try writer.print("<path d='{s}' ", .{self.d.items});
+            if (self.x1) |x1| {
+                try writer.print("x1={d} ", .{x1});
+            }
+            if (self.y1) |y1| {
+                try writer.print("y1={d} ", .{y1});
+            }
+            if (self.x2) |x2| {
+                try writer.print("x2={d} ", .{x2});
+            }
+            if (self.y2) |y2| {
+                try writer.print("y2={d} ", .{y2});
+            }
             try self.base.renderImpl(writer);
             try writer.writeAll("/>");
         }
@@ -202,13 +268,16 @@ pub const Element = struct {
 
     pub fn deinit(base: *Element, allocator: *Allocator) void {
         switch (base.tag) {
+            .raw => @fieldParentPtr(Raw, "base", base).deinit(allocator),
             .group => @fieldParentPtr(Group, "base", base).deinit(allocator),
+            .path => @fieldParentPtr(Path, "base", base).deinit(allocator),
             else => {},
         }
     }
 
     pub fn render(base: *Element, writer: anytype) @TypeOf(writer).Error!void {
         return switch (base.tag) {
+            .raw => @fieldParentPtr(Raw, "base", base).render(writer),
             .group => @fieldParentPtr(Group, "base", base).render(writer),
             .path => @fieldParentPtr(Path, "base", base).render(writer),
             .line => @fieldParentPtr(Line, "base", base).render(writer),
@@ -235,6 +304,7 @@ pub const Element = struct {
     }
 };
 
+id: ?[]const u8 = null,
 height: usize,
 width: usize,
 children: std.ArrayListUnmanaged(*Element) = .{},
@@ -247,7 +317,11 @@ pub fn deinit(self: *Svg, allocator: *Allocator) void {
 }
 
 pub fn render(self: Svg, writer: anytype) @TypeOf(writer).Error!void {
-    try writer.print("<svg height='{d}' width='{d}'>", .{ self.height, self.width });
+    try writer.print("<svg height='{d}' width='{d}' ", .{ self.height, self.width });
+    if (self.id) |id| {
+        try writer.print("id='{s}' ", .{id});
+    }
+    try writer.writeAll(">");
     for (self.children.items) |child| {
         try child.render(writer);
     }

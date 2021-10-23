@@ -16,6 +16,9 @@ rect:hover{
   stroke-width: 2;
   stroke-dasharray: 10, 4;
 }
+.dim {
+  opacity: 0.25;
+}
 .hidden {
   fill: none;
   stroke: none;
@@ -35,8 +38,9 @@ rect:hover{
   fill: transparent;
   stroke: black;
   stroke-width: 1;
-  stroke-dasharray: 10, 4;
+  stroke-dasharray: 10, 8;
 }
 .arrow {
   stroke: black;
+  fill: transparent;
 }
