@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const log = std.log.scoped(.snapshot);
+const log = std.log.scoped(.zig_snapshots);
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
@@ -40,7 +40,7 @@ const css_styles = @embedFile("styles.css");
 const js_helpers = @embedFile("script.js");
 
 fn usageAndExit(arg0: []const u8) noreturn {
-    std.debug.warn("Usage: {s} <input_json_file>\n", .{arg0});
+    log.warn("Usage: {s} <input_json_file>", .{arg0});
     std.process.exit(1);
 }
 
@@ -50,11 +50,11 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(arena);
 
     if (args.len == 1) {
-        std.debug.warn("not enough arguments\n", .{});
+        log.warn("not enough arguments", .{});
         usageAndExit(args[0]);
     }
     if (args.len > 2) {
-        std.debug.warn("too many arguments\n", .{});
+        log.warn("too many arguments", .{});
         usageAndExit(args[0]);
     }
 
@@ -69,23 +69,15 @@ pub fn main() !void {
     const snapshots = try std.json.parse([]Snapshot, &std.json.TokenStream.init(contents), opts);
     defer std.json.parseFree([]Snapshot, snapshots, opts);
 
-    const out_file = try std.fs.cwd().createFile("snapshots.html", .{
-        .truncate = true,
-        .read = true,
-    });
-    defer out_file.close();
+    const for_analysis = if (snapshots.len > 2) blk: {
+        log.warn("will analyze only the last two snapshots", .{});
+        const nsnapshots = snapshots.len;
+        break :blk snapshots[nsnapshots - 2 ..][0..2];
+    } else snapshots;
+    var svgs = std.ArrayList(Svg).init(arena);
+    var max_height: usize = 0;
 
-    const writer = out_file.writer();
-
-    try writer.writeAll("<html>");
-    try writer.writeAll("<head>");
-    try writer.print("<style>{s}</style>", .{css_styles});
-    try writer.print("<script>{s}</script>", .{js_helpers});
-    try writer.writeAll("</head>");
-    try writer.writeAll("<body>");
-
-    for (snapshots) |snapshot, snap_i| {
-        try writer.writeAll("<div class='snapshot-div'>");
+    for (for_analysis) |snapshot, snap_i| {
         var svg = Svg{
             .id = try std.fmt.allocPrint(arena, "svg-{d}", .{snap_i}),
             .width = 600,
@@ -142,10 +134,30 @@ pub fn main() !void {
             try rel.group.children.append(arena, &arrow.base);
         }
 
-        try svg.render(writer);
-        try writer.writeAll("</div>");
+        max_height = std.math.max(max_height, svg.height);
+        try svgs.append(svg);
     }
 
+    const out_file = try std.fs.cwd().createFile("snapshots.html", .{
+        .truncate = true,
+        .read = true,
+    });
+    defer out_file.close();
+    const writer = out_file.writer();
+    try writer.writeAll("<html>");
+    try writer.writeAll("<head>");
+    try writer.print("<style>{s}</style>", .{css_styles});
+    try writer.print("<script>{s}</script>", .{js_helpers});
+    try writer.writeAll("</head>");
+    try writer.writeAll("<body>");
+    try writer.writeAll("<div class='snapshot-div'>");
+    for (svgs.items) |*svg| {
+        try writer.writeAll("<span>");
+        svg.height = max_height;
+        try svg.render(writer);
+        try writer.writeAll("</span>");
+    }
+    try writer.writeAll("</div>");
     try writer.writeAll("</body>");
     try writer.writeAll("</html>");
 }

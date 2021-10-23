@@ -1,9 +1,10 @@
-var activeElements = [];
-var translatedElements = [];
+var activeElements = {};
+var translatedElements = {};
 
-function reset() {
+function reset(svgId) {
   while (true) {
-    let active = activeElements.pop();
+    if (!(svgId in activeElements)) break;
+    let active = activeElements[svgId].pop();
     if (active == null) break;
     active.classList.add("hidden");
     Array.from(active.getElementsByTagName("rect")).forEach((el) => {
@@ -16,7 +17,8 @@ function reset() {
   }
 
   while (true) {
-    let translated = translatedElements.pop();
+    if (!(svgId in translatedElements)) break;
+    let translated = translatedElements[svgId].pop();
     if (translated == null) break;
     translated.setAttributeNS(null, "transform", "");
   }
@@ -35,8 +37,15 @@ function translate(anchorElementId, svgId, x, y) {
     traverseLateral(directionDown ? el.nextSibling : el.previousSibling, action, directionDown);
   };
 
+  if (!(svgId in activeElements)) {
+    activeElements[svgId] = [];
+  }
+  if (!(svgId in translatedElements)) {
+    translatedElements[svgId] = [];
+  }
+
   const anchorElement = document.getElementById(anchorElementId);
-  activeElements.push(anchorElement);
+  activeElements[svgId].push(anchorElement);
   anchorElement.classList.remove("hidden");
   Array.from(anchorElement.getElementsByTagName("rect")).forEach((el) => {
     el.classList.add("reloc");
@@ -44,18 +53,18 @@ function translate(anchorElementId, svgId, x, y) {
 
   traverseLateral(anchorElement.parentElement.nextSibling, (el) => {
     el.setAttributeNS(null, "transform", `translate(${x}, ${y})`);
-    translatedElements.push(el);
+    translatedElements[svgId].push(el);
   });
 
   const parentGElement = traverseUp(anchorElement, (el) => el.tagName === "svg");
 
   traverseLateral(parentGElement.nextSibling, (el) => {
     el.setAttributeNS(null, "transform", `translate(${x}, ${y})`);
-    translatedElements.push(el);
+    translatedElements[svgId].push(el);
   });
 }
 
-function drawArrows(anchorElementId, svgId, x, y) {
+function drawArrows(anchorElementId, x, y) {
   const anchorElement = document.getElementById(anchorElementId);
   const baseY = parseFloat(anchorElement.getElementsByTagName("rect")[0].getAttributeNS(null, "y"));
   Array.from(anchorElement.getElementsByTagName("path")).forEach((el) => {
@@ -88,7 +97,7 @@ function assert(condition, message) {
 }
 
 function resetAndTranslate(anchorElementId, svgId, x, y) {
-  reset();
+  reset(svgId);
   translate(anchorElementId, svgId, x, y);
-  drawArrows(anchorElementId, svgId, x, y);
+  drawArrows(anchorElementId, x, y);
 }
