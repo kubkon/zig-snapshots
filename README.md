@@ -29,7 +29,7 @@ HTML file with the linker's state per each incremental update that you can inter
 
 ```
 $ zig-out/bin/zig-snapshots snapshots.json
-$ file snapshots.html
-snapshots.html: HTML document text, ASCII text
+$ open snapshots.html
 ```
 
+![zig-snapshots demo](zig_snapshots_demo.png)
