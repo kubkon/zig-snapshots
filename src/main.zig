@@ -76,6 +76,7 @@ pub fn main() !void {
     } else snapshots;
     var svgs = std.ArrayList(Svg).init(arena);
     var max_height: usize = 0;
+    var onclicks = std.StringHashMap(std.ArrayList(OnClickEvent)).init(arena);
 
     for (for_analysis) |snapshot, snap_i| {
         var svg = Svg{
@@ -112,6 +113,7 @@ pub fn main() !void {
                 .y = &y,
                 .lookup = &lookup,
                 .relocs = &relocs,
+                .onclicks = &onclicks,
             });
         }
 
@@ -137,6 +139,26 @@ pub fn main() !void {
         max_height = std.math.max(max_height, svg.height);
         try svgs.append(svg);
     }
+    {
+        var it = onclicks.valueIterator();
+        while (it.next()) |arr| {
+            var js = std.ArrayList(u8).init(arena);
+            for (arr.items) |evt| {
+                const js_func = try std.fmt.allocPrint(arena, "onClick(\"{s}\", \"{s}\", \"{s}\", {d}, {d});", .{
+                    evt.el.base.id.?,
+                    evt.group.base.id.?,
+                    evt.svg_id,
+                    evt.x,
+                    evt.y,
+                });
+                try js.appendSlice(js_func);
+            }
+            const final = try std.fmt.allocPrint(arena, "(function() {{ {s} }})();", .{js.items});
+            for (arr.items) |evt| {
+                evt.el.base.onclick = final;
+            }
+        }
+    }
 
     const out_file = try std.fs.cwd().createFile("snapshots.html", .{
         .truncate = true,
@@ -161,6 +183,14 @@ pub fn main() !void {
     try writer.writeAll("</body>");
     try writer.writeAll("</html>");
 }
+
+const OnClickEvent = struct {
+    el: *Svg.Element.Rect,
+    group: *Svg.Element.Group,
+    svg_id: []const u8,
+    x: usize,
+    y: usize,
+};
 
 const RelocPair = struct {
     target: u64,
@@ -194,6 +224,7 @@ const ParsedNode = struct {
         y: *usize,
         lookup: *std.AutoHashMap(u64, *Svg.Element.Rect),
         relocs: *std.ArrayList(RelocPair),
+        onclicks: *std.StringHashMap(std.ArrayList(OnClickEvent)),
     }) anyerror!void {
         var x = ctx.x.*;
         var y = ctx.y.*;
@@ -238,6 +269,7 @@ const ParsedNode = struct {
                         .y = &y,
                         .lookup = ctx.lookup,
                         .relocs = ctx.relocs,
+                        .onclicks = ctx.onclicks,
                     });
                 }
 
@@ -256,6 +288,7 @@ const ParsedNode = struct {
                             .y = &y,
                             .lookup = ctx.lookup,
                             .relocs = ctx.relocs,
+                            .onclicks = ctx.onclicks,
                         });
                     }
                     break :blk;
@@ -302,15 +335,30 @@ const ParsedNode = struct {
                     address.base.css_classes = "bold-font";
                     try reloc_group.children.append(arena, &address.base);
 
-                    box.base.onclick = try std.fmt.allocPrint(
-                        arena,
-                        "onClick(this, \"{s}\", \"{s}\", 0, {d})",
-                        .{
-                            reloc_group.base.id,
-                            ctx.svg.id,
+                    box.base.id = try std.fmt.allocPrint(arena, "symbol-{d}", .{id});
+                    id += 1;
+
+                    if (ctx.nodes[node.start].payload.name.len == 0) {
+                        // Noname means we can't really optimise for diff exploration between snapshots
+                        box.base.onclick = try std.fmt.allocPrint(arena, "onClick(\"{s}\", \"{s}\", \"{s}\", 0, {d})", .{
+                            box.base.id.?,
+                            reloc_group.base.id.?,
+                            ctx.svg.id.?,
                             node.children.items.len * unit_height,
-                        },
-                    );
+                        });
+                    } else {
+                        const res = try ctx.onclicks.getOrPut(ctx.nodes[node.start].payload.name);
+                        if (!res.found_existing) {
+                            res.value_ptr.* = std.ArrayList(OnClickEvent).init(arena);
+                        }
+                        try res.value_ptr.append(.{
+                            .el = box,
+                            .group = reloc_group,
+                            .svg_id = ctx.svg.id.?,
+                            .x = 0,
+                            .y = node.children.items.len * unit_height,
+                        });
+                    }
 
                     for (node.children.items) |child| {
                         try child.toSvg(arena, .{
@@ -321,6 +369,7 @@ const ParsedNode = struct {
                             .y = &y,
                             .lookup = ctx.lookup,
                             .relocs = ctx.relocs,
+                            .onclicks = ctx.onclicks,
                         });
                     }
 

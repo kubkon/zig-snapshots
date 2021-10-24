@@ -72,7 +72,8 @@ function assert(condition, message) {
   }
 }
 
-function onClick(el, anchorElementId, svgId, x, y) {
+function onClick(thisId, anchorElementId, svgId, x, y) {
+  console.log(svgId);
   if (!(svgId in callbacks)) {
     callbacks[svgId] = [];
   }
@@ -83,6 +84,7 @@ function onClick(el, anchorElementId, svgId, x, y) {
     cb();
   }
 
+  const el = document.getElementById(thisId);
   el.previousSibling.classList.add("bold-font");
   el.classList.add("highlight");
   callbacks[svgId].push(() => {
