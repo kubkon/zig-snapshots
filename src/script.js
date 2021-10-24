@@ -1,30 +1,6 @@
-var activeElements = {};
-var translatedElements = {};
+var callbacks = {};
 
-function reset(svgId) {
-  while (true) {
-    if (!(svgId in activeElements)) break;
-    let active = activeElements[svgId].pop();
-    if (active == null) break;
-    active.classList.add("hidden");
-    Array.from(active.getElementsByTagName("rect")).forEach((el) => {
-      el.classList.remove("reloc");
-    });
-    Array.from(active.getElementsByTagName("path")).forEach((el) => {
-      el.classList.remove("arrow");
-      el.setAttributeNS(null, "marker-end", "");
-    });
-  }
-
-  while (true) {
-    if (!(svgId in translatedElements)) break;
-    let translated = translatedElements[svgId].pop();
-    if (translated == null) break;
-    translated.setAttributeNS(null, "transform", "");
-  }
-}
-
-function translate(anchorElementId, svgId, x, y) {
+function translate(anchorElement, svgId, x, y) {
   const traverseUp = function (el, cond) {
     if (cond(el.parentElement)) { return el;
     }
@@ -37,35 +13,31 @@ function translate(anchorElementId, svgId, x, y) {
     traverseLateral(directionDown ? el.nextSibling : el.previousSibling, action, directionDown);
   };
 
-  if (!(svgId in activeElements)) {
-    activeElements[svgId] = [];
-  }
-  if (!(svgId in translatedElements)) {
-    translatedElements[svgId] = [];
-  }
-
-  const anchorElement = document.getElementById(anchorElementId);
-  activeElements[svgId].push(anchorElement);
-  anchorElement.classList.remove("hidden");
   Array.from(anchorElement.getElementsByTagName("rect")).forEach((el) => {
     el.classList.add("reloc");
+    callbacks[svgId].push(() => {
+      el.classList.remove("reloc");
+    });
   });
 
   traverseLateral(anchorElement.parentElement.nextSibling, (el) => {
     el.setAttributeNS(null, "transform", `translate(${x}, ${y})`);
-    translatedElements[svgId].push(el);
+    callbacks[svgId].push(() => {
+      el.setAttributeNS(null, "transform", "");
+    });
   });
 
   const parentGElement = traverseUp(anchorElement, (el) => el.tagName === "svg");
 
   traverseLateral(parentGElement.nextSibling, (el) => {
     el.setAttributeNS(null, "transform", `translate(${x}, ${y})`);
-    translatedElements[svgId].push(el);
+    callbacks[svgId].push(() => {
+      el.setAttributeNS(null, "transform", "");
+    });
   });
 }
 
-function drawArrows(anchorElementId, x, y) {
-  const anchorElement = document.getElementById(anchorElementId);
+function drawArrows(anchorElement, svgId, x, y) {
   const baseY = parseFloat(anchorElement.getElementsByTagName("rect")[0].getAttributeNS(null, "y"));
   Array.from(anchorElement.getElementsByTagName("path")).forEach((el) => {
     const x1 = parseFloat(el.getAttributeNS(null, "x1"));
@@ -87,6 +59,10 @@ function drawArrows(anchorElementId, x, y) {
     el.setAttributeNS(null, "d", `M ${x1} ${y1} Q ${cx} ${cy} ${x2 + 3} ${y2}`);
     el.setAttributeNS(null, "marker-end", "url(#arrowhead)");
     el.classList.add("arrow");
+    callbacks[svgId].push(() => {
+      el.classList.remove("arrow");
+      el.setAttributeNS(null, "marker-end", "");
+    });
   });
 }
 
@@ -96,8 +72,30 @@ function assert(condition, message) {
   }
 }
 
-function resetAndTranslate(anchorElementId, svgId, x, y) {
-  reset(svgId);
-  translate(anchorElementId, svgId, x, y);
-  drawArrows(anchorElementId, x, y);
+function onClick(el, anchorElementId, svgId, x, y) {
+  if (!(svgId in callbacks)) {
+    callbacks[svgId] = [];
+  }
+
+  while (true) {
+    let cb = callbacks[svgId].pop();
+    if (cb == null) break;
+    cb();
+  }
+
+  el.previousSibling.classList.add("bold-font");
+  el.classList.add("highlight");
+  callbacks[svgId].push(() => {
+    el.previousSibling.classList.remove("bold-font");
+    el.classList.remove("highlight");
+  });
+
+  const anchorElement = document.getElementById(anchorElementId);
+  anchorElement.classList.remove("hidden");
+  callbacks[svgId].push(() => {
+    anchorElement.classList.add("hidden");
+  });
+
+  translate(anchorElement, svgId, x, y);
+  drawArrows(anchorElement, svgId, x, y);
 }

@@ -44,3 +44,10 @@ rect:hover{
   stroke: black;
   fill: transparent;
 }
+.bold-font {
+  font-weight: bold;
+}
+.highlight {
+  stroke: red;
+  stroke-width: 4;
+}

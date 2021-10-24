@@ -294,9 +294,17 @@ const ParsedNode = struct {
                     id += 1;
                     try group.children.append(arena, &reloc_group.base);
 
+                    const address = try Svg.Element.Text.new(arena, .{
+                        .x = box.x + box.width + 10,
+                        .y = box.y + 15,
+                        .contents = try std.fmt.allocPrint(arena, "{x}", .{ctx.nodes[node.start].address}),
+                    });
+                    address.base.css_classes = "bold-font";
+                    try reloc_group.children.append(arena, &address.base);
+
                     box.base.onclick = try std.fmt.allocPrint(
                         arena,
-                        "resetAndTranslate(\"{s}\", \"{s}\", 0, {d})",
+                        "onClick(this, \"{s}\", \"{s}\", 0, {d})",
                         .{
                             reloc_group.base.id,
                             ctx.svg.id,
