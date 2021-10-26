@@ -1,5 +1,15 @@
 var callbacks = {};
 
+function resetAll() {
+  for (let key in callbacks) {
+    while (true) {
+      let cb = callbacks[key].pop();
+      if (cb == null) break;
+      cb();
+    }
+  }
+}
+
 function translate(anchorElement, svgId, x, y) {
   const traverseUp = function (el, cond) {
     if (cond(el.parentElement)) { return el;
@@ -73,7 +83,6 @@ function assert(condition, message) {
 }
 
 function onClick(thisId, anchorElementId, svgId, x, y) {
-  console.log(svgId);
   if (!(svgId in callbacks)) {
     callbacks[svgId] = [];
   }
@@ -100,4 +109,50 @@ function onClick(thisId, anchorElementId, svgId, x, y) {
 
   translate(anchorElement, svgId, x, y);
   drawArrows(anchorElement, svgId, x, y);
+}
+
+var clickCounter = 0;
+var clickMax = null;
+
+function onClickPrev() {
+  clickCounter -= 1;
+  document.getElementById("btn-next").disabled = false;
+  if (clickCounter == 0) {
+    document.getElementById("btn-prev").disabled = true;
+  }
+  onClickPrevNextCommon();
+}
+
+function onClickNext() {
+  if (clickMax == null) {
+    var count = 0;
+    while (true) {
+      if (document.getElementById(`svg-${count}`) == null) break;
+      count += 1;
+    }
+    clickMax = count;
+  }
+  clickCounter += 1;
+  document.getElementById("btn-prev").disabled = false;
+  if (clickCounter == clickMax - 2) {
+    document.getElementById("btn-next").disabled = true;
+  }
+  onClickPrevNextCommon();
+}
+
+function onClickPrevNextCommon() {
+  resetAll();
+
+  const lhs = document.getElementById("diff-lhs");
+  const rhs = document.getElementById("diff-rhs");
+
+  lhs.removeChild(lhs.lastChild);
+  rhs.removeChild(rhs.lastChild);
+
+  const next_lhs = document.getElementById(`svg-${clickCounter}`).cloneNode(true);
+  const next_rhs = document.getElementById(`svg-${clickCounter + 1}`).cloneNode(true);
+  next_lhs.style.visibility = "visible";
+  next_rhs.style.visibility = "visible";
+  lhs.appendChild(next_lhs);
+  rhs.appendChild(next_rhs);
 }

@@ -308,16 +308,25 @@ id: ?[]const u8 = null,
 height: usize,
 width: usize,
 children: std.ArrayListUnmanaged(*Element) = .{},
+css_styles: std.ArrayListUnmanaged([]const u8) = .{},
 
 pub fn deinit(self: *Svg, allocator: *Allocator) void {
     for (self.children.items) |child| {
         child.deinit(allocator);
     }
     self.children.deinit(allocator);
+    self.css_styles.deinit(allocator);
 }
 
 pub fn render(self: Svg, writer: anytype) @TypeOf(writer).Error!void {
     try writer.print("<svg height='{d}' width='{d}' ", .{ self.height, self.width });
+    if (self.css_styles.items.len > 0) {
+        try writer.writeAll("style=\"");
+        for (self.css_styles.items) |css| {
+            try writer.writeAll(css);
+        }
+        try writer.writeAll("\"");
+    }
     if (self.id) |id| {
         try writer.print("id='{s}' ", .{id});
     }

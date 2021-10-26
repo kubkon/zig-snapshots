@@ -69,16 +69,16 @@ pub fn main() !void {
     const snapshots = try std.json.parse([]Snapshot, &std.json.TokenStream.init(contents), opts);
     defer std.json.parseFree([]Snapshot, snapshots, opts);
 
-    const for_analysis = if (snapshots.len > 2) blk: {
-        log.warn("will analyze only the last two snapshots", .{});
-        const nsnapshots = snapshots.len;
-        break :blk snapshots[nsnapshots - 2 ..][0..2];
-    } else snapshots;
+    if (snapshots.len == 0) {
+        log.warn("empty snapshots array found", .{});
+        return;
+    }
+
     var svgs = std.ArrayList(Svg).init(arena);
     var max_height: usize = 0;
     var onclicks = std.StringHashMap(std.ArrayList(OnClickEvent)).init(arena);
 
-    for (for_analysis) |snapshot, snap_i| {
+    for (snapshots) |snapshot, snap_i| {
         var svg = Svg{
             .id = try std.fmt.allocPrint(arena, "svg-{d}", .{snap_i}),
             .width = 600,
@@ -189,13 +189,40 @@ pub fn main() !void {
     try writer.print("<script>{s}</script>", .{js_helpers});
     try writer.writeAll("</head>");
     try writer.writeAll("<body>");
+
+    // TODO why is this even necessary?
+    var next_btn = std.ArrayList(u8).init(arena);
+    if (svgs.items.len <= 2) {
+        try next_btn.appendSlice("disabled");
+    }
+    try writer.print(
+        \\<div>
+        \\  <span><button id='btn-prev' onclick='onClickPrev()' disabled>Previous</button></span>
+        \\  <span><button id='btn-next' onclick='onClickNext()' {s}>Next</button></span>
+        \\</div>
+    , .{
+        next_btn.items,
+    });
     try writer.writeAll("<div class='snapshot-div'>");
-    for (svgs.items) |*svg| {
-        try writer.writeAll("<span>");
-        svg.height = max_height;
-        try svg.render(writer);
+
+    try writer.writeAll("<span id='diff-lhs'>");
+    svgs.items[0].height = max_height;
+    try svgs.items[0].render(writer);
+    try writer.writeAll("</span>");
+
+    if (svgs.items.len > 1) {
+        try writer.writeAll("<span id='diff-rhs'>");
+        svgs.items[1].height = max_height;
+        try svgs.items[1].render(writer);
         try writer.writeAll("</span>");
     }
+
+    for (svgs.items) |*svg| {
+        try svg.css_styles.append(arena, "visibility:hidden;");
+        svg.height = max_height;
+        try svg.render(writer);
+    }
+
     try writer.writeAll("</div>");
     try writer.writeAll("</body>");
     try writer.writeAll("</html>");
