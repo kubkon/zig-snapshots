@@ -102,7 +102,7 @@ pub fn main() !void {
         var parser = Parser{ .arena = arena, .nodes = snapshot.nodes };
         var x: usize = 10;
         var y: usize = 10;
-        var lookup = std.AutoHashMap(u64, *Svg.Element.Rect).init(arena);
+        var lookup = std.AutoHashMap(u64, LookupEntry).init(arena);
         var relocs = std.ArrayList(RelocPair).init(arena);
 
         while (try parser.parse()) |parsed_node| {
@@ -118,9 +118,26 @@ pub fn main() !void {
         }
 
         for (relocs.items) |rel| {
-            const target_el = lookup.get(rel.target) orelse continue;
-            // TODO add lookup by tag to group elements
-            const source_el = rel.el;
+            const target = lookup.get(rel.target) orelse {
+                // TODO css_classes clearly ought to be a dynamically sized array
+                rel.label.base.css_classes = if (rel.label.base.css_classes) |css|
+                    try std.fmt.allocPrint(arena, "{s} italics-font", .{css})
+                else
+                    "italics-font";
+                rel.label.contents = "dyld bound";
+                continue;
+            };
+            const target_el = target.el;
+            // TODO Svg.Element.Text should be able to store and render tspan children
+            rel.label.contents = try std.fmt.allocPrint(arena, "<tspan x='{d}' dy='{d}'>{s}</tspan><tspan x='{d}' dy='{d}'>  @ {x}</tspan>", .{
+                rel.label.x,
+                0,
+                target.name,
+                rel.label.x,
+                unit_height,
+                rel.target,
+            });
+            const source_el = rel.box;
 
             const x1 = source_el.x + source_el.width;
             const y1 = source_el.y + @divFloor(source_el.height, 2);
@@ -184,6 +201,11 @@ pub fn main() !void {
     try writer.writeAll("</html>");
 }
 
+const LookupEntry = struct {
+    el: *Svg.Element.Rect,
+    name: []const u8,
+};
+
 const OnClickEvent = struct {
     el: *Svg.Element.Rect,
     group: *Svg.Element.Group,
@@ -194,7 +216,8 @@ const OnClickEvent = struct {
 
 const RelocPair = struct {
     target: u64,
-    el: *Svg.Element.Rect,
+    label: *Svg.Element.Text,
+    box: *Svg.Element.Rect,
     group: *Svg.Element.Group,
 };
 
@@ -220,9 +243,10 @@ const ParsedNode = struct {
         nodes: []Snapshot.Node,
         svg: *Svg,
         group: ?*Svg.Element.Group = null,
+        sect_name: ?[]const u8 = null,
         x: *usize,
         y: *usize,
-        lookup: *std.AutoHashMap(u64, *Svg.Element.Rect),
+        lookup: *std.AutoHashMap(u64, LookupEntry),
         relocs: *std.ArrayList(RelocPair),
         onclicks: *std.StringHashMap(std.ArrayList(OnClickEvent)),
     }) anyerror!void {
@@ -265,6 +289,7 @@ const ParsedNode = struct {
                         .nodes = ctx.nodes,
                         .svg = ctx.svg,
                         .group = group,
+                        .sect_name = label_text,
                         .x = ctx.x,
                         .y = &y,
                         .lookup = ctx.lookup,
@@ -284,6 +309,7 @@ const ParsedNode = struct {
                             .nodes = ctx.nodes,
                             .svg = ctx.svg,
                             .group = ctx.group,
+                            .sect_name = ctx.sect_name,
                             .x = ctx.x,
                             .y = &y,
                             .lookup = ctx.lookup,
@@ -316,7 +342,14 @@ const ParsedNode = struct {
                     box.base.css_classes = "symbol local";
                 }
                 try group.children.append(arena, &box.base);
-                try ctx.lookup.putNoClobber(ctx.nodes[node.start].address, box);
+                const name = if (ctx.nodes[node.start].payload.name.len == 0)
+                    ctx.sect_name.?
+                else
+                    ctx.nodes[node.start].payload.name;
+                try ctx.lookup.putNoClobber(ctx.nodes[node.start].address, .{
+                    .el = box,
+                    .name = name,
+                });
 
                 y += box.height;
 
@@ -344,7 +377,7 @@ const ParsedNode = struct {
                             box.base.id.?,
                             reloc_group.base.id.?,
                             ctx.svg.id.?,
-                            node.children.items.len * unit_height,
+                            node.children.items.len * 2 * unit_height, // TODO this should be read from the reloc box rather than hardcoded
                         });
                     } else {
                         const res = try ctx.onclicks.getOrPut(ctx.nodes[node.start].payload.name);
@@ -356,7 +389,7 @@ const ParsedNode = struct {
                             .group = reloc_group,
                             .svg_id = ctx.svg.id.?,
                             .x = 0,
-                            .y = node.children.items.len * unit_height,
+                            .y = node.children.items.len * 2 * unit_height, // TODO this should be read from the reloc box rather than hardcoded
                         });
                     }
 
@@ -365,6 +398,7 @@ const ParsedNode = struct {
                             .nodes = ctx.nodes,
                             .svg = ctx.svg,
                             .group = reloc_group,
+                            .sect_name = ctx.sect_name,
                             .x = ctx.x,
                             .y = &y,
                             .lookup = ctx.lookup,
@@ -373,7 +407,7 @@ const ParsedNode = struct {
                         });
                     }
 
-                    y -= node.children.items.len * unit_height;
+                    y -= node.children.items.len * 2 * unit_height;
                 }
             },
             .reloc => {
@@ -388,9 +422,7 @@ const ParsedNode = struct {
                 const label = try Svg.Element.Text.new(arena, .{
                     .x = x + 215,
                     .y = y + 15,
-                    .contents = try std.fmt.allocPrint(arena, "target @ {x}", .{
-                        ctx.nodes[node.start].payload.target,
-                    }),
+                    .contents = undefined,
                 });
                 try ctx.group.?.children.append(arena, &label.base);
 
@@ -398,12 +430,13 @@ const ParsedNode = struct {
                     .x = x + box_width,
                     .y = y,
                     .width = 200,
-                    .height = unit_height,
+                    .height = unit_height * 2,
                 });
                 try ctx.group.?.children.append(arena, &box.base);
                 try ctx.relocs.append(.{
                     .target = ctx.nodes[node.start].payload.target,
-                    .el = box,
+                    .label = label,
+                    .box = box,
                     .group = ctx.group.?,
                 });
 

@@ -47,6 +47,9 @@ rect:hover{
 .bold-font {
   font-weight: bold;
 }
+.italics-font {
+  font-style: italic;
+}
 .highlight {
   stroke: red;
   stroke-width: 4;
