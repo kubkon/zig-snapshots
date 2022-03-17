@@ -183,6 +183,7 @@ pub fn main() !void {
     });
     defer out_file.close();
     const writer = out_file.writer();
+    try writer.writeAll("<!DOCTYPE html>");
     try writer.writeAll("<html>");
     try writer.writeAll("<head>");
     try writer.print("<style>{s}</style>", .{css_styles});
@@ -380,62 +381,60 @@ const ParsedNode = struct {
 
                 y += box.height;
 
-                if (node.children.items.len > 0) {
-                    const reloc_group = try Svg.Element.Group.new(arena);
-                    reloc_group.base.css_classes = "hidden";
-                    reloc_group.base.id = try std.fmt.allocPrint(arena, "reloc-group-{d}", .{id});
-                    id += 1;
-                    try group.children.append(arena, &reloc_group.base);
+                const reloc_group = try Svg.Element.Group.new(arena);
+                reloc_group.base.css_classes = "hidden";
+                reloc_group.base.id = try std.fmt.allocPrint(arena, "reloc-group-{d}", .{id});
+                id += 1;
+                try group.children.append(arena, &reloc_group.base);
 
-                    const address = try Svg.Element.Text.new(arena, .{
-                        .x = box.x + box.width + 10,
-                        .y = box.y + 15,
-                        .contents = try std.fmt.allocPrint(arena, "{x}", .{ctx.nodes[node.start].address}),
+                const address = try Svg.Element.Text.new(arena, .{
+                    .x = box.x + box.width + 10,
+                    .y = box.y + 15,
+                    .contents = try std.fmt.allocPrint(arena, "{x}", .{ctx.nodes[node.start].address}),
+                });
+                address.base.css_classes = "bold-font";
+                try reloc_group.children.append(arena, &address.base);
+
+                box.base.id = try std.fmt.allocPrint(arena, "symbol-{d}", .{id});
+                id += 1;
+
+                if (ctx.nodes[node.start].payload.name.len == 0) {
+                    // Noname means we can't really optimise for diff exploration between snapshots
+                    box.base.onclick = try std.fmt.allocPrint(arena, "onClick(\"{s}\", \"{s}\", \"{s}\", 0, {d})", .{
+                        box.base.id.?,
+                        reloc_group.base.id.?,
+                        ctx.svg.id.?,
+                        node.children.items.len * 2 * unit_height, // TODO this should be read from the reloc box rather than hardcoded
                     });
-                    address.base.css_classes = "bold-font";
-                    try reloc_group.children.append(arena, &address.base);
-
-                    box.base.id = try std.fmt.allocPrint(arena, "symbol-{d}", .{id});
-                    id += 1;
-
-                    if (ctx.nodes[node.start].payload.name.len == 0) {
-                        // Noname means we can't really optimise for diff exploration between snapshots
-                        box.base.onclick = try std.fmt.allocPrint(arena, "onClick(\"{s}\", \"{s}\", \"{s}\", 0, {d})", .{
-                            box.base.id.?,
-                            reloc_group.base.id.?,
-                            ctx.svg.id.?,
-                            node.children.items.len * 2 * unit_height, // TODO this should be read from the reloc box rather than hardcoded
-                        });
-                    } else {
-                        const res = try ctx.onclicks.getOrPut(ctx.nodes[node.start].payload.name);
-                        if (!res.found_existing) {
-                            res.value_ptr.* = std.ArrayList(OnClickEvent).init(arena);
-                        }
-                        try res.value_ptr.append(.{
-                            .el = box,
-                            .group = reloc_group,
-                            .svg_id = ctx.svg.id.?,
-                            .x = 0,
-                            .y = node.children.items.len * 2 * unit_height, // TODO this should be read from the reloc box rather than hardcoded
-                        });
+                } else {
+                    const res = try ctx.onclicks.getOrPut(ctx.nodes[node.start].payload.name);
+                    if (!res.found_existing) {
+                        res.value_ptr.* = std.ArrayList(OnClickEvent).init(arena);
                     }
-
-                    for (node.children.items) |child| {
-                        try child.toSvg(arena, .{
-                            .nodes = ctx.nodes,
-                            .svg = ctx.svg,
-                            .group = reloc_group,
-                            .sect_name = ctx.sect_name,
-                            .x = ctx.x,
-                            .y = &y,
-                            .lookup = ctx.lookup,
-                            .relocs = ctx.relocs,
-                            .onclicks = ctx.onclicks,
-                        });
-                    }
-
-                    y -= node.children.items.len * 2 * unit_height;
+                    try res.value_ptr.append(.{
+                        .el = box,
+                        .group = reloc_group,
+                        .svg_id = ctx.svg.id.?,
+                        .x = 0,
+                        .y = node.children.items.len * 2 * unit_height, // TODO this should be read from the reloc box rather than hardcoded
+                    });
                 }
+
+                for (node.children.items) |child| {
+                    try child.toSvg(arena, .{
+                        .nodes = ctx.nodes,
+                        .svg = ctx.svg,
+                        .group = reloc_group,
+                        .sect_name = ctx.sect_name,
+                        .x = ctx.x,
+                        .y = &y,
+                        .lookup = ctx.lookup,
+                        .relocs = ctx.relocs,
+                        .onclicks = ctx.onclicks,
+                    });
+                }
+
+                y -= node.children.items.len * 2 * unit_height;
             },
             .reloc => {
                 const address = try Svg.Element.Text.new(arena, .{

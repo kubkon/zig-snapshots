@@ -48,7 +48,9 @@ function translate(anchorElement, svgId, x, y) {
 }
 
 function drawArrows(anchorElement, svgId, x, y) {
-  const baseY = parseFloat(anchorElement.getElementsByTagName("rect")[0].getAttributeNS(null, "y"));
+  const rect = anchorElement.getElementsByTagName("rect");
+  if (rect === undefined || rect.length == 0) return;
+  const baseY = parseFloat(rect[0].getAttributeNS(null, "y"));
   Array.from(anchorElement.getElementsByTagName("path")).forEach((el) => {
     const x1 = parseFloat(el.getAttributeNS(null, "x1"));
     const y1 = parseFloat(el.getAttributeNS(null, "y1"));
