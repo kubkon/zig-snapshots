@@ -7,7 +7,7 @@ const Allocator = mem.Allocator;
 const Svg = @import("Svg.zig");
 
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-const gpa = &general_purpose_allocator.allocator;
+const gpa = general_purpose_allocator.allocator();
 
 var id: usize = 0;
 
@@ -46,7 +46,7 @@ fn usageAndExit(arg0: []const u8) noreturn {
 
 pub fn main() !void {
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
     const args = try std.process.argsAlloc(arena);
 
     if (args.len == 1) {
@@ -258,7 +258,7 @@ const ParsedNode = struct {
     end: usize,
     children: std.ArrayListUnmanaged(*ParsedNode) = .{},
 
-    fn deinit(node: *ParsedNode, allocator: *Allocator) void {
+    fn deinit(node: *ParsedNode, allocator: Allocator) void {
         for (node.children.items) |child| {
             child.deinit(allocator);
             allocator.destroy(child);
@@ -266,7 +266,7 @@ const ParsedNode = struct {
         node.children.deinit(allocator);
     }
 
-    fn toSvg(node: *ParsedNode, arena: *Allocator, ctx: struct {
+    fn toSvg(node: *ParsedNode, arena: Allocator, ctx: struct {
         nodes: []Snapshot.Node,
         svg: *Svg,
         group: ?*Svg.Element.Group = null,
@@ -477,7 +477,7 @@ const ParsedNode = struct {
 };
 
 const Parser = struct {
-    arena: *Allocator,
+    arena: Allocator,
     nodes: []Snapshot.Node,
     count: usize = 0,
 

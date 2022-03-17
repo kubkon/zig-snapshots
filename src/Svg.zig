@@ -23,7 +23,7 @@ pub const Element = struct {
         attrs: std.ArrayListUnmanaged([]const u8) = .{},
         children: std.ArrayListUnmanaged(*Svg.Element) = .{},
 
-        pub fn new(allocator: *Allocator, tag: []const u8) !*Raw {
+        pub fn new(allocator: Allocator, tag: []const u8) !*Raw {
             const self = try allocator.create(Raw);
             self.* = .{
                 .base = .{ .tag = .raw },
@@ -32,7 +32,7 @@ pub const Element = struct {
             return self;
         }
 
-        pub fn deinit(self: *Raw, allocator: *Allocator) void {
+        pub fn deinit(self: *Raw, allocator: Allocator) void {
             self.attrs.deinit(allocator);
             for (self.children.items) |child| {
                 child.deinit(allocator);
@@ -59,7 +59,7 @@ pub const Element = struct {
         base: Svg.Element,
         children: std.ArrayListUnmanaged(*Svg.Element) = .{},
 
-        pub fn new(allocator: *Allocator) !*Group {
+        pub fn new(allocator: Allocator) !*Group {
             const self = try allocator.create(Group);
             self.* = .{
                 .base = .{ .tag = .group },
@@ -67,7 +67,7 @@ pub const Element = struct {
             return self;
         }
 
-        pub fn deinit(self: *Group, allocator: *Allocator) void {
+        pub fn deinit(self: *Group, allocator: Allocator) void {
             for (self.children.items) |child| {
                 child.deinit(allocator);
             }
@@ -95,7 +95,7 @@ pub const Element = struct {
         y2: ?usize,
         d: std.ArrayListUnmanaged(u8) = .{},
 
-        pub fn new(allocator: *Allocator, opts: struct {
+        pub fn new(allocator: Allocator, opts: struct {
             x1: ?usize = null,
             y1: ?usize = null,
             x2: ?usize = null,
@@ -116,19 +116,19 @@ pub const Element = struct {
             return self;
         }
 
-        pub fn moveTo(self: *Path, allocator: *Allocator, x: usize, y: usize) !void {
+        pub fn moveTo(self: *Path, allocator: Allocator, x: usize, y: usize) !void {
             const d = try std.fmt.allocPrint(allocator, "M {d} {d} ", .{ x, y });
             defer allocator.free(d);
             try self.d.appendSlice(allocator, d);
         }
 
-        pub fn lineTo(self: *Path, allocator: *Allocator, x: usize, y: usize) !void {
+        pub fn lineTo(self: *Path, allocator: Allocator, x: usize, y: usize) !void {
             const d = try std.fmt.allocPrint(allocator, "L {d} {d} ", .{ x, y });
             defer allocator.free(d);
             try self.d.appendSlice(allocator, d);
         }
 
-        pub fn deinit(self: *Path, allocator: *Allocator) void {
+        pub fn deinit(self: *Path, allocator: Allocator) void {
             self.d.deinit(allocator);
         }
 
@@ -160,7 +160,7 @@ pub const Element = struct {
         x2: usize,
         y2: usize,
 
-        pub fn new(allocator: *Allocator, opts: struct {
+        pub fn new(allocator: Allocator, opts: struct {
             x1: usize = 0,
             y1: usize = 0,
             x2: usize = 0,
@@ -198,7 +198,7 @@ pub const Element = struct {
         width: usize,
         height: usize,
 
-        pub fn new(allocator: *Allocator, opts: struct {
+        pub fn new(allocator: Allocator, opts: struct {
             x: usize = 0,
             y: usize = 0,
             width: usize = 0,
@@ -235,7 +235,7 @@ pub const Element = struct {
         y: usize,
         contents: ?[]const u8,
 
-        pub fn new(allocator: *Allocator, opts: struct {
+        pub fn new(allocator: Allocator, opts: struct {
             x: usize = 0,
             y: usize = 0,
             contents: ?[]const u8 = null,
@@ -266,7 +266,7 @@ pub const Element = struct {
     css_classes: ?[]const u8 = null,
     onclick: ?[]const u8 = null,
 
-    pub fn deinit(base: *Element, allocator: *Allocator) void {
+    pub fn deinit(base: *Element, allocator: Allocator) void {
         switch (base.tag) {
             .raw => @fieldParentPtr(Raw, "base", base).deinit(allocator),
             .group => @fieldParentPtr(Group, "base", base).deinit(allocator),
@@ -310,7 +310,7 @@ width: usize,
 children: std.ArrayListUnmanaged(*Element) = .{},
 css_styles: std.ArrayListUnmanaged([]const u8) = .{},
 
-pub fn deinit(self: *Svg, allocator: *Allocator) void {
+pub fn deinit(self: *Svg, allocator: Allocator) void {
     for (self.children.items) |child| {
         child.deinit(allocator);
     }
